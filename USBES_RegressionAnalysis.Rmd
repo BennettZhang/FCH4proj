@@ -1,0 +1,186 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# import lilbrary
+```{r}
+library(corrplot)
+library(car)
+library(leaps)
+library(moments)
+library(dplyr)
+library(MASS)
+library(psych)
+library(GPArotation)
+library(gvlma)
+library(factoextra)
+library(glmnet)
+library(Matrix)
+library(data.table)
+library(lmtest)
+library(ggplot2)
+library(ggthemes)
+```
+
+# read the data
+```{r}
+Data <- read.csv("USBES_V2.csv")
+head(Data)
+```
+
+# standardization
+```{r}
+Data_new<- Data_train[ , !colnames(Data_train) %in% c('credit.policy','purpose')]
+Data_box<-scale(Data_new[1:7],center=FALSE)
+Data_new <- cbind(Data_train[2],scale(Data_new[1:7],center=FALSE),Data_new[8:12])
+head(Data_new)
+```
+```{r}
+na.omit(Data)
+full_model <- lm(FCH4_mean ~ ., data = Data)
+anova(full_model)
+summary(full_model)
+```
+```{r}
+stepwise<-step(full_model)
+summary(stepwise)
+```
+
+#Delete unrelated variables
+```{r}
+subData <- Data[ , colnames(Data) %in% c('FCH4_mean',"Year" , "DOY" , "TIMESTAMP_END,NEE" , "H" , "LE" , "FCH4_median" ,
+    "USTAR" , "SW_IN", "NETRAD" , "PPFD_OUT", "VPD" , "RH" , "PA","TA" , 
+    "TS_1" ,"TS_3", "G_1", "SWC_1" , "SWC_2", "GPP_DT" , "RECO_DT" , "H_F" , 
+    "LE_F" , "FCH4_F" , "SW_IN_F", "LW_IN_F" , "NETRAD_F" , "PPFD_IN_F", 
+    "PPFD_OUT_F" ,"VPD_F" ,"RH_F", "PA_F" , "WS_F" , "LE_F_ANN" , "FCH4_F_ANN_median" , 
+    "FCH4_F_ANN_mean" ,"FCH4_uncertainty" , "WD_vec_avg" , "WS_vec_avg" , 
+    "FCH4_daily_percent_NaN")]
+submodel <- lm(FCH4_mean ~ ., data = subData)
+summary(submodel)
+# anova(submodel)
+```
+#stepwise regression
+```{r}
+stepwise_model<-step(submodel,direction="both")
+summary(stepwise_model)
+anova(stepwise_model)
+```
+#full subset regression
+```{r}
+regsub <- regsubsets(FCH4_mean ~ ., data = subData,method="seqrep", nbest = 4)
+plot(regsub, scale = "adjr2",margin = 0.1);
+plot(regsub, scale = "Cp",rsize=0.5,margin = 0.2)
+```
+#Determine influence points
+```{r}
+influencePlot(submodel)
+```
+#Determine outlier points
+```{r}
+outlierTest(submodel)
+```
+
+# Detect outlier and high leveage points
+```{r}
+Data_new <- subData[-c(902,514,590,901,877,349,910,624,338,210,913),]
+```
+
+#multicollinearity test
+```{r}
+vif(submodel)
+```
+
+#confidence interval
+```{r}
+confint(submodel)
+```
+# Show the importance of each factor
+```{r}
+relweights <- function(fit, ...) {
+R <- cor(fit$model)
+nvar <- ncol(R)
+rxx <- R[2:nvar, 2:nvar]
+rxy <- R[2:nvar, 1]
+svd <- eigen(rxx)
+evec <- svd$vectors
+ev <- svd$values
+delta <- diag(sqrt(ev))
+# correlations between original predictors and new orthogonal variables
+lambda <- evec %*% delta %*% t(evec)
+lambdasq <- lambda^2
+# regression coefficients of Y on orthogonal variables
+beta <- solve(lambda) %*% rxy
+rsquare <- colSums(beta^2)
+rawwgt <- lambdasq %*% beta^2
+import <- (rawwgt/rsquare) * 100
+lbls <- names(fit$model[2:nvar])
+rownames(import) <- lbls
+colnames(import) <- "Weights"
+# plot results
+barplot(t(import), names.arg = lbls, ylab = "% of R-Square",
+xlab = "Predictor Variables", main = "Relative Importance of Predictor Variables",
+sub = paste("R-Square = ", round(rsquare, digits = 3)),
+...)
+return(import)
+}
+```
+
+```{r}
+model <- lm(FCH4_mean~. , data = Data_new)
+dt<-relweights(model, col = "lightgrey")
+```
+# The importance scores
+```{r}
+dt
+```
+
+```{r}
+hist(submodel$residuals)
+skewness(submodel$residuals)
+```
+```{r}
+plot(density(submodel$residuals),main = "Density of model residuals",lwd=2)
+```
+# Plot Q-Q graph
+```{r}
+par(mfrow=c(2,2)) 
+plot(submodel)
+```
+# Cooke distance diagram
+```{r}
+plot(submodel, 4)
+```
+
+# Residuals and lever diagrams
+```{r}
+plot(submodel, 1)
+```
+# One of the Heteroscedasticity Test 
+```{r}
+gvmodel <- gvlma(submodel)
+summary(gvmodel)
+```
+
+#Homovariance test: if p value is greater than 0.05, it can be considered to meet the assumption of the same variance 
+```{r}
+ncvTest(submodel)
+```
+#Independence test: when p value is greater than 0.05, errors can be considered to be independent of each other
+```{r}
+durbinWatsonTest(submodel)
+```
+```{r}
+dwtest(submodel)
+```
+```{r}
+spreadLevelPlot(submodel, lwd = 0.5, main = "Spread-Level plot for our finalmodel")
+```
+
+
+
+
+
+
+
+
